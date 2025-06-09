@@ -1,10 +1,8 @@
+# Subtitle Extractor GUI with SRT/ASS + VTT dual export, smart naming, progress bar and explorer
+
 import os
 import re
 import subprocess
-import tempfile
-import zipfile
-import rarfile
-import py7zr
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, scrolledtext
 from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -14,8 +12,8 @@ import webbrowser
 class SubtitleExtractorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("MKV Subtitle Extractor + Archives")
-        self.root.geometry("900x800")
+        self.root.title("MKV Subtitle Extractor")
+        self.root.geometry("800x700")
 
         self.mkv_file = None
         self.mkv_dir = None
@@ -25,10 +23,7 @@ class SubtitleExtractorApp:
         self.vtt_vars = []
         self.check_buttons = []
 
-        self.archive_temp_dir = None
-        self.archive_files = []
-
-        self.label = tk.Label(root, text="⬇️ Drag and drop an MKV, ASS/SRT or ZIP/RAR/7Z archive", font=("Segoe UI", 14))
+        self.label = tk.Label(root, text="⬇️ Drag and drop an MKV file here", font=("Segoe UI", 14))
         self.label.pack(pady=10)
 
         self.button_frame = tk.Frame(root)
@@ -50,7 +45,7 @@ class SubtitleExtractorApp:
         self.progress = ttk.Progressbar(root, mode='determinate')
         self.progress.pack(fill='x', padx=10, pady=5)
 
-        self.export_button = tk.Button(root, text="Export Selected Subtitles", command=self.export_archived_subtitles, state=tk.DISABLED)
+        self.export_button = tk.Button(root, text="Export Selected Subtitles", command=self.export_subtitles, state=tk.DISABLED)
         self.export_button.pack(pady=5)
 
         self.log_box = scrolledtext.ScrolledText(root, wrap=tk.WORD, height=10, state='disabled', font=("Consolas", 10))
@@ -71,28 +66,14 @@ class SubtitleExtractorApp:
         if not files:
             return
         file = files[0]
-
-        ext = os.path.splitext(file)[1].lower()
-
-        if ext == ".mkv":
-            #import subtitles_extract  # Assume existing script is renamed subtitles_extract.py
-            #self.root.destroy()
-            #subtitles_extract.main(file)
-            self.mkv_file = file
-            self.mkv_dir = os.path.dirname(file)
-            self.label.config(text=f"📄 Loaded: {os.path.basename(file)}")
-            self.log(f"[INFO] MKV file loaded: {self.mkv_file}")
-            self.list_subtitles()
-
-        elif ext in [".zip", ".rar", ".7z"]:
-            self.process_archive(file)
-
-        elif ext in [".srt", ".ass"]:
-            self.process_single_file(file)
-
-        else:
-            messagebox.showerror("Error", f"Unsupported file type: {ext}")
-
+        if not file.lower().endswith('.mkv'):
+            messagebox.showerror("Error", "Only MKV files are supported.")
+            return
+        self.mkv_file = file
+        self.mkv_dir = os.path.dirname(file)
+        self.label.config(text=f"📄 Loaded: {os.path.basename(file)}")
+        self.log(f"[INFO] MKV file loaded: {self.mkv_file}")
+        self.list_subtitles()
 
     def list_subtitles(self):
         self.clear_checkboxes()
@@ -167,80 +148,6 @@ class SubtitleExtractorApp:
 
         self.export_button.config(state=tk.NORMAL)
 
-    def process_archive(self, archive_path):
-        self.clear_checkboxes()
-        self.archive_temp_dir = tempfile.mkdtemp()
-        self.archive_files = []
-        ext = os.path.splitext(archive_path)[1].lower()
-
-        try:
-            if ext == ".zip":
-                with zipfile.ZipFile(archive_path) as z:
-                    z.extractall(self.archive_temp_dir)
-            elif ext == ".rar":
-                with rarfile.RarFile(archive_path) as r:
-                    r.extractall(self.archive_temp_dir)
-            elif ext == ".7z":
-                with py7zr.SevenZipFile(archive_path, mode='r') as z:
-                    z.extractall(path=self.archive_temp_dir)
-        except Exception as e:
-            self.log(f"[ERROR] Failed to extract archive: {e}")
-            return
-
-        for root_dir, _, files in os.walk(self.archive_temp_dir):
-            for file in files:
-                if file.lower().endswith((".srt", ".ass")):
-                    full_path = os.path.join(root_dir, file)
-                    self.archive_files.append(full_path)
-
-        if not self.archive_files:
-            self.log("[INFO] No SRT or ASS files found in archive.")
-            return
-
-        self.log(f"[INFO] Found {len(self.archive_files)} subtitle files in archive.")
-
-        for path in self.archive_files:
-            orig_var = tk.BooleanVar()
-            vtt_var = tk.BooleanVar()
-            label = os.path.relpath(path, self.archive_temp_dir)
-
-            row = tk.Frame(self.frame)
-            row.pack(fill='x', padx=10)
-
-            cb1 = tk.Checkbutton(row, text=label, variable=orig_var, anchor='w', justify='left')
-            cb1.pack(side=tk.LEFT, fill='x', expand=True)
-
-            cb2 = tk.Checkbutton(row, text="VTT", variable=vtt_var)
-            cb2.pack(side=tk.RIGHT)
-
-            self.orig_vars.append(orig_var)
-            self.vtt_vars.append(vtt_var)
-            self.check_buttons.append((cb1, cb2))
-
-        self.export_button.config(state=tk.NORMAL)
-
-    def process_single_file(self, filepath):
-        self.clear_checkboxes()
-        self.archive_files = [filepath]
-
-        orig_var = tk.BooleanVar(value=True)
-        vtt_var = tk.BooleanVar()
-
-        row = tk.Frame(self.frame)
-        row.pack(fill='x', padx=10)
-
-        cb1 = tk.Checkbutton(row, text=os.path.basename(filepath), variable=orig_var, anchor='w', justify='left')
-        cb1.pack(side=tk.LEFT, fill='x', expand=True)
-
-        cb2 = tk.Checkbutton(row, text="VTT", variable=vtt_var)
-        cb2.pack(side=tk.RIGHT)
-
-        self.orig_vars.append(orig_var)
-        self.vtt_vars.append(vtt_var)
-        self.check_buttons.append((cb1, cb2))
-
-        self.export_button.config(state=tk.NORMAL)
-
     def clear_checkboxes(self):
         for cb1, cb2 in self.check_buttons:
             cb1.destroy()
@@ -256,62 +163,6 @@ class SubtitleExtractorApp:
     def open_mkv_folder(self):
         if self.mkv_dir:
             os.startfile(self.mkv_dir)
-
-    ##########################################################
-    # This is used for exporting from ZIP or from ASS/SRT    #
-    # Look at export_subtitles for exporting from MKV        #
-    ##########################################################
-    def export_archived_subtitles(self):
-        if self.mkv_file is not None:
-            self.export_subtitles()
-        else:
-            export_dir = filedialog.askdirectory(title="Choose export folder")
-            if not export_dir:
-                self.log("[WARN] Export canceled - no folder selected.")
-                return
-
-            total_tasks = sum(var.get() for var in self.orig_vars + self.vtt_vars)
-            if total_tasks == 0:
-                messagebox.showwarning("No subtitles selected", "Please select at least one subtitle to export.")
-                return
-
-            self.progress['value'] = 0
-            step = 100 / total_tasks
-
-            for i, path in enumerate(self.archive_files):
-                filename = os.path.basename(path)
-                name, ext = os.path.splitext(filename)
-
-                if self.orig_vars[i].get():
-                    out_path = os.path.join(export_dir, filename)
-                    if os.path.exists(out_path) and not self.overwrite_var.get():
-                        self.log(f"[SKIP] {filename} exists.")
-                    else:
-                        self.log(f"[COPY] {filename}")
-                        with open(path, 'rb') as src, open(out_path, 'wb') as dst:
-                            dst.write(src.read())
-                    self.progress['value'] += step
-                    self.root.update_idletasks()
-
-                if self.vtt_vars[i].get():
-                    temp_srt = path
-                    if ext.lower() == ".ass":
-                        temp_srt = os.path.join(export_dir, f"__temp__{i}.srt")
-                        cmd = ["ffmpeg", "-y", "-i", f"{path}", temp_srt]
-                        self.log(f"[CONVERT] ASS -> SRT: {' '.join(cmd)}")
-                        subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-                    out_vtt = os.path.join(export_dir, f"{name}.vtt")
-                    cmd = ["ffmpeg", "-y", "-i", temp_srt, out_vtt]
-                    self.log(f"[CONVERT] SRT -> VTT: {' '.join(cmd)}")
-                    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-                    self.progress['value'] += step
-                    self.root.update_idletasks()
-
-            self.log("[DONE] Export complete.")
-            messagebox.showinfo("Export Complete", f"Subtitles exported to:\n{export_dir}")
-            self.progress['value'] = 100
 
     def export_subtitles(self):
         export_dir = filedialog.askdirectory(title="Choose export folder", initialdir=self.mkv_dir)
@@ -415,11 +266,7 @@ class SubtitleExtractorApp:
         self.progress['value'] = 100
 
 
-def main():
+if __name__ == "__main__":
     root = TkinterDnD.Tk()
     app = SubtitleExtractorApp(root)
     root.mainloop()
-
-
-if __name__ == "__main__":
-    main()
